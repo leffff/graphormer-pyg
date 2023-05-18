@@ -1,2 +1,2 @@
 # graphormer-pyg
-Microsoft Graphormer rewritten in PyTorch-Geometric
+[Microsoft Graphormer](https://github.com/microsoft/Graphormer) rewritten in PyTorch-Geometric
