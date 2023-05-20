@@ -34,11 +34,8 @@ def single_source_shortest_path(G, source, cutoff=None):
     for v in node_paths:
         node_path = node_paths[v]
         for i in range(len(node_path[:-1])):
-            edge_paths[v].append(
-                edges.index(
-                    (node_path[i], node_path[i + 1])
-                )
-            )
+            index = edges.index((node_path[i], node_path[i + 1]))
+            edge_paths[v].append(index)
 
     return node_paths, edge_paths
 

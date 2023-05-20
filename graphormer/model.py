@@ -1,5 +1,6 @@
 from typing import Union
 
+import torch
 from torch import nn
 from torch_geometric.data import Data
 
@@ -8,8 +9,29 @@ from graphormer.layers import GraphormerEncoderLayer, CentralityEncoding, Spatia
 
 
 class Graphormer(nn.Module):
-    def __init__(self, num_layers, input_node_dim, node_dim, input_edge_dim, edge_dim, output_dim, n_heads,
-                 max_in_degree, max_out_degree, max_path_distance):
+    def __init__(self,
+                 num_layers: int,
+                 input_node_dim: int,
+                 node_dim: int,
+                 input_edge_dim: int,
+                 edge_dim: int,
+                 output_dim: int,
+                 n_heads: int,
+                 max_in_degree: int,
+                 max_out_degree: int,
+                 max_path_distance: int):
+        """
+        :param num_layers: number of Graphormer layers
+        :param input_node_dim: input dimension of node features
+        :param node_dim: hidden dimensions of node features
+        :param input_edge_dim: input dimension of edge features
+        :param edge_dim: hidden dimensions of edge features
+        :param output_dim: number of output node features
+        :param n_heads: number of attention heads
+        :param max_in_degree: max in degree of nodes
+        :param max_out_degree: max in degree of nodes
+        :param max_path_distance: max pairwise distance between two nodes
+        """
         super().__init__()
 
         self.num_layers = num_layers
@@ -29,7 +51,7 @@ class Graphormer(nn.Module):
         self.centrality_encoding = CentralityEncoding(
             max_in_degree=self.max_in_degree,
             max_out_degree=self.max_out_degree,
-            d_model=self.node_dim
+            node_dim=self.node_dim
         )
 
         self.spatial_encoding = SpatialEncoding(
@@ -43,10 +65,10 @@ class Graphormer(nn.Module):
 
         self.node_out_lin = nn.Linear(self.node_dim, self.output_dim)
 
-    def forward(self, data: Union[Data]):
+    def forward(self, data: Union[Data]) -> torch.Tensor:
         """
-        :param data:
-        :return:
+        :param data: input graph of batch of graphs
+        :return: torch.Tensor, output node embeddings
         """
         x = data.x.float()
         edge_index = data.edge_index.long()
