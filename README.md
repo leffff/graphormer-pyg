@@ -3,4 +3,4 @@
 
 # Warning
 This implementation differs from the original implementation in the paper in following ways:
-1. No VNode (CLS token analogue in BERT)
+1. No [VNode] ([CLS] token analogue in BERT)
