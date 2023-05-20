@@ -1,0 +1,3 @@
+torch
+torch-geometric
+networkx
