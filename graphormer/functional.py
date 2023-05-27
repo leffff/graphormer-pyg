@@ -3,6 +3,7 @@ from typing import Tuple, Dict, List
 import networkx as nx
 from torch_geometric.data import Data
 from torch_geometric.utils.convert import to_networkx
+from joblib import Parallel, delayed
 
 
 def single_source_shortest_path(G, source, cutoff=None):
@@ -69,11 +70,10 @@ def fast_single_source_shortest_path(G, source, cutoff=None):
     return node_paths, edge_paths
 
 
-def all_pairs_shortest_path(G, cutoff=None) -> Tuple[Dict[int, List[int]], Dict[int, List[int]]]:
-    # OPTIMIZE: This can be trivially parallelized.
-    paths = {n: fast_single_source_shortest_path(G, n, cutoff=cutoff) for n in G}
-    node_paths = {n: paths[n][0] for n in paths}
-    edge_paths = {n: paths[n][1] for n in paths}
+def all_pairs_shortest_path(G) -> Tuple[Dict[int, List[int]], Dict[int, List[int]]]:
+    paths = Parallel(n_jobs=12)((fast_single_source_shortest_path)(G, n) for n in G)
+    node_paths = {n: paths[n][0] for n in range(len(paths))}
+    edge_paths = {n: paths[n][1] for n in range(len(paths))}
     return node_paths, edge_paths
 
 
