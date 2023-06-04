@@ -2,6 +2,7 @@ from typing import Tuple
 
 import torch
 from torch import nn
+from torch_geometric.utils import degree
 
 
 class CentralityEncoding(nn.Module):
@@ -26,11 +27,8 @@ class CentralityEncoding(nn.Module):
         """
         num_nodes = x.shape[0]
 
-        for i in range(num_nodes):
-            in_degree = min((edge_index[1] == i).sum(), self.max_in_degree) - 1
-            out_degree = min((edge_index[0] == i).sum(), self.max_out_degree) - 1
-
-            x[i] += self.z_in[in_degree] + self.z_out[out_degree]
+        x += self.z_in[degree(index=edge_index[1], num_nodes=num_nodes).long()] + \
+             self.z_out[degree(index=edge_index[0], num_nodes=num_nodes).long()]
 
         return x
 
