@@ -1,9 +1,9 @@
 from typing import Tuple, Dict, List
 
 import networkx as nx
-
 from torch_geometric.data import Data
 from torch_geometric.utils.convert import to_networkx
+
 
 def floyd_warshall_source_to_all(G, source, cutoff=None):
     if source not in G:
