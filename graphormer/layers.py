@@ -27,8 +27,8 @@ class CentralityEncoding(nn.Module):
         """
         num_nodes = x.shape[0]
 
-        x += self.z_in[degree(index=edge_index[1], num_nodes=num_nodes).long()] + \
-             self.z_out[degree(index=edge_index[0], num_nodes=num_nodes).long()]
+        x += self.z_in[min(degree(index=edge_index[1], num_nodes=num_nodes).long(), self.max_in_degree) - 1] + \
+             self.z_out[min(degree(index=edge_index[0], num_nodes=num_nodes).long(), self.max_out_degree) - 1]
 
         return x
 
