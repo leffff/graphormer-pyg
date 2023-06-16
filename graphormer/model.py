@@ -59,7 +59,7 @@ class Graphormer(nn.Module):
         )
 
         self.layers = nn.ModuleList([
-            GraphormerEncoderLayer(node_dim=self.node_dim, edge_dim=self.edge_dim, n_heads=self.n_heads) for _ in
+            GraphormerEncoderLayer(node_dim=self.node_dim, edge_dim=self.edge_dim, n_heads=self.n_heads, max_path_distance=self.max_path_distance) for _ in
             range(self.num_layers)
         ])
 
@@ -85,10 +85,10 @@ class Graphormer(nn.Module):
         edge_attr = self.edge_in_lin(edge_attr)
 
         x = self.centrality_encoding(x, edge_index)
-        b = self.spatial_encoding(x, node_paths)
+        b, distance_matrix = self.spatial_encoding(x, node_paths)
 
         for layer in self.layers:
-            x = layer(x, edge_attr, b, edge_paths, ptr)
+            x = layer(x, edge_attr, b, edge_paths, distance_matrix, ptr)
 
         x = self.node_out_lin(x)
 
