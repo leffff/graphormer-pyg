@@ -4,6 +4,8 @@ import torch
 from torch import nn
 from torch_geometric.utils import degree
 
+from graphormer.utils import get_batch_mask
+
 
 class CentralityEncoding(nn.Module):
     def __init__(self, max_in_degree: int, max_out_degree: int, node_dim: int):
@@ -43,16 +45,6 @@ class SpatialEncoding(nn.Module):
 
         self.b = nn.Parameter(torch.randn(self.max_path_distance))
 
-    def matrix_form_dict(self, node_paths, num_nodes) -> torch.Tensor:
-        distance_matrix = torch.zeros((num_nodes, num_nodes))
-
-        for src in node_paths:
-            for dst in node_paths[src]:
-                path_len = len(node_paths[src][dst])
-                distance_matrix[src][dst] = path_len
-
-        return distance_matrix
-
     def forward(self, x: torch.Tensor, node_paths) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         :param x: node feature matrix
@@ -85,10 +77,14 @@ class EdgeEncoding(nn.Module):
                 num_edges = path_ij.shape[0]
 
                 if num_edges < self.max_path_distance:
-                    path_ij = torch.cat([path_ij, torch.zeros((self.max_path_distance - num_edges, self.edge_dim))], dim=0)
+                    path_ij = torch.cat([path_ij, torch.zeros((self.max_path_distance - num_edges, self.edge_dim))],
+                                        dim=0)
 
                 path_matrix[src, dst] = path_ij
         return path_matrix
+
+    def inner_product(self, path_matrix: torch.Tensor) -> torch.Tensor:
+        return (path_matrix * self.edge_vector).sum(dim=-1).sum(dim=-1)
 
     def forward(self, x: torch.Tensor, edge_attr: torch.Tensor, edge_paths, node_path_lens) -> torch.Tensor:
         """
@@ -98,26 +94,9 @@ class EdgeEncoding(nn.Module):
         :return: torch.Tensor, Edge Encoding matrix
         """
         path_matrix = self.matrix_form_dict(edge_paths=edge_paths, edge_attr=edge_attr, num_nodes=x.shape[0])
-        cij = (path_matrix * self.edge_vector).sum(dim=-1).sum(dim=-1) / (node_path_lens - 1)
+        cij =  self.inner_product(path_matrix) / max(node_path_lens - 1, 0)
         cij = torch.nan_to_num(cij)
         return cij
-
-    # def forward(self, x: torch.Tensor, edge_attr: torch.Tensor, edge_paths) -> torch.Tensor:
-    #     """
-    #     :param x: node feature matrix
-    #     :param edge_attr: edge feature matrix
-    #     :param edge_paths: pairwise node paths in edge indexes
-    #     :return: torch.Tensor, Edge Encoding matrix
-    #     """
-    #     cij = torch.zeros((x.shape[0], x.shape[0])).to(next(self.parameters()).device)
-    #     edge_scores = self.edge_lin(edge_attr)
-    #
-    #     for src in edge_paths:
-    #         for dst in edge_paths[src]:
-    #             cij[src][dst] = edge_scores[edge_paths[src][dst]].mean()
-    #
-    #     cij = torch.nan_to_num(cij)
-    #     return cij
 
 
 class GraphormerAttentionHead(nn.Module):
@@ -154,10 +133,8 @@ class GraphormerAttentionHead(nn.Module):
         :param ptr: batch pointer that shows graph indexes in batch of graphs
         :return: torch.Tensor, node embeddings after attention operation
         """
-        batch_mask = torch.zeros((query.shape[0], query.shape[0])).to(next(self.parameters()).device)
-        # OPTIMIZE: get rid of slices: rewrite to torch
-        for i in range(len(ptr) - 1):
-            batch_mask[ptr[i]:ptr[i + 1], ptr[i]:ptr[i + 1]] = 1
+        num_nodes = query.shape[0]
+        batch_mask = get_batch_mask(ptr, num_nodes).to(next(self.parameters()).device)
 
         query = self.q(query)
         key = self.k(key)

@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Tuple, Dict, List
 from multiprocessing import Pool
+from typing import Tuple, Dict, List
 
 import networkx as nx
 from torch_geometric.data import Data, Batch
 from torch_geometric.utils.convert import to_networkx
 
 
-def floyd_warshall_source_to_all(G: nx.DiGraph|nx.Graph, source, cutoff=None):
+def floyd_warshall_source_to_all(G: nx.DiGraph | nx.Graph, source, cutoff=None):
     if source not in G:
         raise nx.NodeNotFound("Source {} not in G".format(source))
 
@@ -37,7 +37,7 @@ def floyd_warshall_source_to_all(G: nx.DiGraph|nx.Graph, source, cutoff=None):
     return node_paths, edge_paths
 
 
-def all_pairs_shortest_path(G: nx.DiGraph|nx.Graph) -> Tuple[Dict[int, List[int]], Dict[int, List[int]]]:
+def all_pairs_shortest_path(G: nx.DiGraph | nx.Graph) -> Tuple[Dict[int, List[int]], Dict[int, List[int]]]:
     paths = {n: floyd_warshall_source_to_all(G, n) for n in G}
     node_paths = {n: paths[n][0] for n in paths}
     edge_paths = {n: paths[n][1] for n in paths}

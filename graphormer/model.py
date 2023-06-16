@@ -1,11 +1,12 @@
-from typing import Union
+from __future__ import annotations
 
 import torch
 from torch import nn
-from torch_geometric.data import Data
+from torch_geometric.data import Data, Batch
 
 from graphormer.functional import shortest_path_distance, batched_shortest_path_distance
 from graphormer.layers import GraphormerEncoderLayer, CentralityEncoding, SpatialEncoding
+from graphormer.utils import node_path_matrix_form_dict
 
 
 class Graphormer(nn.Module):
@@ -59,13 +60,14 @@ class Graphormer(nn.Module):
         )
 
         self.layers = nn.ModuleList([
-            GraphormerEncoderLayer(node_dim=self.node_dim, edge_dim=self.edge_dim, n_heads=self.n_heads, max_path_distance=self.max_path_distance) for _ in
+            GraphormerEncoderLayer(node_dim=self.node_dim, edge_dim=self.edge_dim, n_heads=self.n_heads,
+                                   max_path_distance=self.max_path_distance) for _ in
             range(self.num_layers)
         ])
 
         self.node_out_lin = nn.Linear(self.node_dim, self.output_dim)
 
-    def forward(self, data: Union[Data]) -> torch.Tensor:
+    def forward(self, data: Data | Batch) -> torch.Tensor:
         """
         :param data: input graph of batch of graphs
         :return: torch.Tensor, output node embeddings
@@ -73,6 +75,7 @@ class Graphormer(nn.Module):
         x = data.x.float()
         edge_index = data.edge_index.long()
         edge_attr = data.edge_attr.float()
+        num_nodes = x.shape[0]
 
         if type(data) == Data:
             ptr = None
@@ -81,14 +84,16 @@ class Graphormer(nn.Module):
             ptr = data.ptr
             node_paths, edge_paths = batched_shortest_path_distance(data)
 
+        node_path_distance_matrix = node_path_matrix_form_dict(node_paths, num_nodes)
+
         x = self.node_in_lin(x)
         edge_attr = self.edge_in_lin(edge_attr)
 
         x = self.centrality_encoding(x, edge_index)
-        b, distance_matrix = self.spatial_encoding(x, node_paths)
+        b = self.spatial_encoding(x, node_paths)
 
         for layer in self.layers:
-            x = layer(x, edge_attr, b, edge_paths, distance_matrix, ptr)
+            x = layer(x, edge_attr, b, edge_paths, node_path_distance_matrix, ptr)
 
         x = self.node_out_lin(x)
 
