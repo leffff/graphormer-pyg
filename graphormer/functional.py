@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Tuple, Dict, List
 from multiprocessing import Pool
 
@@ -44,29 +46,15 @@ def all_pairs_shortest_path(G: nx.DiGraph|nx.Graph) -> Tuple[Dict[int, List[int]
 
 def shortest_path_distance(data: Data) -> Tuple[Dict[int, List[int]], Dict[int, List[int]]]:
     G = to_networkx(data)
-    # from to_networkx docs: returns networkx.Graph if to_undirected is set to True,
-    # or a directed networkx.DiGraph otherwise
-    # т.ч. я типизацию такую прикручиваю
     node_paths, edge_paths = all_pairs_shortest_path(G)
     return node_paths, edge_paths
 
 
-def batched_all_pairs_shortest_path(G: nx.DiGraph|nx.Graph) -> Tuple[Dict[int, List[int]], Dict[int, List[int]]]:
-    # exactly the same code as `all_pairs_shortest_path`?
-    paths = {n: floyd_warshall_source_to_all(G, n) for n in G}
-    node_paths = {n: paths[n][0] for n in paths}
-    edge_paths = {n: paths[n][1] for n in paths}
-    return node_paths, edge_paths
-
-
 def batched_shortest_path_distance(data: Batch) -> Tuple[Dict[int, List[int]], Dict[int, List[int]]]:
-    # судя по `data.to_data_list()` type(Data) == Batch?
     pool = Pool()
     relabeled_graphs = []
     shift = 0
     for graph in pool.map(to_networkx, data.to_data_list()):
-        # Expected type 'Iterable[Data]' (matched generic type 'Iterable[_S]'), got 'list[BaseData]' instead
-        # Норм warning?
         num_nodes = graph.number_of_nodes()
         relabeled_graphs.append(nx.relabel_nodes(graph, {i: i + shift for i in range(num_nodes)}))
         shift += num_nodes
@@ -74,7 +62,7 @@ def batched_shortest_path_distance(data: Batch) -> Tuple[Dict[int, List[int]], D
     node_paths = {}
     edge_paths = {}
 
-    for path in pool.map(batched_all_pairs_shortest_path, relabeled_graphs):
+    for path in pool.map(all_pairs_shortest_path, relabeled_graphs):
         for k, v in path[0].items():
             node_paths[k] = v
         for k, v in path[1].items():
