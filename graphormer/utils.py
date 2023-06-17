@@ -14,8 +14,10 @@ def node_path_matrix_form_dict(node_paths: Dict, num_nodes: int) -> torch.Tensor
     return distance_matrix
 
 
-def get_batch_mask(ptr: torch.LongTensor, num_nodes: int):
+def get_batch_mask(ptr: torch.LongTensor, num_nodes: int) -> torch.Tensor:
     batch_mask = torch.zeros((num_nodes, num_nodes))
     # OPTIMIZE: get rid of slices: rewrite to torch
     for i in range(len(ptr) - 1):
         batch_mask[ptr[i]:ptr[i + 1], ptr[i]:ptr[i + 1]] = 1
+
+    return batch_mask

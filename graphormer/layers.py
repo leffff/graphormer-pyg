@@ -45,17 +45,13 @@ class SpatialEncoding(nn.Module):
 
         self.b = nn.Parameter(torch.randn(self.max_path_distance))
 
-    def forward(self, x: torch.Tensor, node_paths) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, distance_matrix: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        :param x: node feature matrix
-        :param paths: pairwise node paths
-        :return: torch.Tensor, spatial Encoding matrix
+        :param distance_matrix:
+        :return:
         """
-        num_nodes = x.shape[0]
-        distance_matrix = self.matrix_form_dict(node_paths, num_nodes)
         spatial_matrix = self.b[torch.min(distance_matrix, torch.tensor([self.max_path_distance])).long() - 1]
-
-        return spatial_matrix, distance_matrix
+        return spatial_matrix
 
 
 class EdgeEncoding(nn.Module):
@@ -67,9 +63,9 @@ class EdgeEncoding(nn.Module):
 
         self.edge_dim = edge_dim
         self.max_path_distance = max_path_distance
-        self.edge_vector = self.b = nn.Parameter(torch.randn(self.max_path_distance, self.edge_dim))
+        self.edge_vector = nn.Parameter(torch.randn(self.max_path_distance, self.edge_dim))
 
-    def matrix_form_dict(self, edge_paths, edge_attr, num_nodes) -> torch.Tensor:
+    def matrix_from_dict(self, edge_paths, edge_attr, num_nodes) -> torch.Tensor:
         path_matrix = torch.zeros(size=(num_nodes, num_nodes, self.max_path_distance, self.edge_dim))
         for src in edge_paths:
             for dst in edge_paths[src]:
@@ -77,14 +73,14 @@ class EdgeEncoding(nn.Module):
                 num_edges = path_ij.shape[0]
 
                 if num_edges < self.max_path_distance:
-                    path_ij = torch.cat([path_ij, torch.zeros((self.max_path_distance - num_edges, self.edge_dim))],
-                                        dim=0)
+                    path_ij = torch.cat([
+                        path_ij,
+                        torch.zeros((self.max_path_distance - num_edges, self.edge_dim)).to(
+                            next(self.parameters()).device)
+                    ], dim=0)
 
                 path_matrix[src, dst] = path_ij
         return path_matrix
-
-    def inner_product(self, path_matrix: torch.Tensor) -> torch.Tensor:
-        return (path_matrix * self.edge_vector).sum(dim=-1).sum(dim=-1)
 
     def forward(self, x: torch.Tensor, edge_attr: torch.Tensor, edge_paths, node_path_lens) -> torch.Tensor:
         """
@@ -93,8 +89,10 @@ class EdgeEncoding(nn.Module):
         :param edge_paths: pairwise node paths in edge indexes
         :return: torch.Tensor, Edge Encoding matrix
         """
-        path_matrix = self.matrix_form_dict(edge_paths=edge_paths, edge_attr=edge_attr, num_nodes=x.shape[0])
-        cij =  self.inner_product(path_matrix) / max(node_path_lens - 1, 0)
+        path_matrix = self.matrix_from_dict(edge_paths=edge_paths, edge_attr=edge_attr, num_nodes=x.shape[0])
+        path_matrix = path_matrix.to(next(self.parameters()).device)
+        cij = (path_matrix * self.edge_vector).sum(dim=-1).sum(dim=-1) / torch.max(node_path_lens - 1,
+                                                                                   torch.tensor([0])).to(next(self.parameters()).device)
         cij = torch.nan_to_num(cij)
         return cij
 

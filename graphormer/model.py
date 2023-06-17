@@ -84,17 +84,23 @@ class Graphormer(nn.Module):
             ptr = data.ptr
             node_paths, edge_paths = batched_shortest_path_distance(data)
 
+        print("PATHS CALCULATED")
+
         node_path_distance_matrix = node_path_matrix_form_dict(node_paths, num_nodes)
+        print("PATHS CONVERTED")
 
         x = self.node_in_lin(x)
+        print("NODE EMBEDDINGS")
         edge_attr = self.edge_in_lin(edge_attr)
-
+        print("EDGE EMBEDDINGS")
         x = self.centrality_encoding(x, edge_index)
-        b = self.spatial_encoding(x, node_paths)
+        print("CENTRALITY ENCODING")
+        b = self.spatial_encoding(node_path_distance_matrix)
+        print("SPATIAL ENCODING")
 
         for layer in self.layers:
             x = layer(x, edge_attr, b, edge_paths, node_path_distance_matrix, ptr)
-
+            print("LAYER")
         x = self.node_out_lin(x)
-
+        print("OUT")
         return x
