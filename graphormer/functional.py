@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Tuple, Dict, List
-from multiprocessing import Pool
+from torch.multiprocessing import Pool
 
 import networkx as nx
 from torch_geometric.data import Data, Batch
