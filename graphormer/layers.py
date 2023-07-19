@@ -124,8 +124,11 @@ class GraphormerAttentionHead(nn.Module):
         """
         batch_mask = torch.zeros((query.shape[0], query.shape[0])).to(next(self.parameters()).device)
         # OPTIMIZE: get rid of slices: rewrite to torch
-        for i in range(len(ptr) - 1):
-            batch_mask[ptr[i]:ptr[i + 1], ptr[i]:ptr[i + 1]] = 1
+        if type(ptr) == type(None):
+            batch_mask += 1
+        else:
+            for i in range(len(ptr) - 1):
+                batch_mask[ptr[i]:ptr[i + 1], ptr[i]:ptr[i + 1]] = 1
 
         query = self.q(query)
         key = self.k(key)
