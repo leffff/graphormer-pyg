@@ -59,8 +59,11 @@ class Graphormer(nn.Module):
         )
 
         self.layers = nn.ModuleList([
-            GraphormerEncoderLayer(node_dim=self.node_dim, edge_dim=self.edge_dim, n_heads=self.n_heads) for _ in
-            range(self.num_layers)
+            GraphormerEncoderLayer(
+                node_dim=self.node_dim,
+                edge_dim=self.edge_dim,
+                n_heads=self.n_heads,
+                max_path_distance=self.max_path_distance) for _ in range(self.num_layers)
         ])
 
         self.node_out_lin = nn.Linear(self.node_dim, self.output_dim)
