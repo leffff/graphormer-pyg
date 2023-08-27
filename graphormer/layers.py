@@ -57,6 +57,10 @@ class SpatialEncoding(nn.Module):
         return spatial_matrix
 
 
+def dot_product(x1, x2) -> torch.Tensor:
+    return (x1 * x2).sum(dim=1)
+
+
 class EdgeEncoding(nn.Module):
     def __init__(self, edge_dim: int, max_path_distance: int):
         """
@@ -66,9 +70,6 @@ class EdgeEncoding(nn.Module):
         self.edge_dim = edge_dim
         self.max_path_distance = max_path_distance
         self.edge_vector = nn.Parameter(torch.randn(self.max_path_distance, self.edge_dim))
-
-    def dot_product(self, x1, x2) -> torch.Tensor:
-        return (x1 * x2).sum(dim=1)
 
     def forward(self, x: torch.Tensor, edge_attr: torch.Tensor, edge_paths) -> torch.Tensor:
         """
@@ -83,7 +84,7 @@ class EdgeEncoding(nn.Module):
             for dst in edge_paths[src]:
                 path_ij = edge_paths[src][dst][:self.max_path_distance]
                 weight_inds = [i for i in range(len(path_ij))]
-                cij[src][dst] = self.dot_product(self.edge_vector[weight_inds], edge_attr[path_ij]).mean()
+                cij[src][dst] = dot_product(self.edge_vector[weight_inds], edge_attr[path_ij]).mean()
 
         cij = torch.nan_to_num(cij)
         return cij
@@ -122,13 +123,17 @@ class GraphormerAttentionHead(nn.Module):
         :param ptr: batch pointer that shows graph indexes in batch of graphs
         :return: torch.Tensor, node embeddings after attention operation
         """
-        batch_mask = torch.zeros((query.shape[0], query.shape[0])).to(next(self.parameters()).device)
+        batch_mask_neg_inf = torch.full(size=(query.shape[0], query.shape[0]), fill_value=-1e6).to(next(self.parameters()).device)
+        batch_mask_zeros = torch.zeros(size=(query.shape[0], query.shape[0])).to(next(self.parameters()).device)
+
         # OPTIMIZE: get rid of slices: rewrite to torch
         if type(ptr) == type(None):
-            batch_mask += 1
+            batch_mask_neg_inf = torch.ones(size=(query.shape[0], query.shape[0])).to(next(self.parameters()).device)
+            batch_mask_zeros += 1
         else:
             for i in range(len(ptr) - 1):
-                batch_mask[ptr[i]:ptr[i + 1], ptr[i]:ptr[i + 1]] = 1
+                batch_mask_neg_inf[ptr[i]:ptr[i + 1], ptr[i]:ptr[i + 1]] = 1
+                batch_mask_zeros[ptr[i]:ptr[i + 1], ptr[i]:ptr[i + 1]] = 1
 
         query = self.q(query)
         key = self.k(key)
@@ -136,8 +141,8 @@ class GraphormerAttentionHead(nn.Module):
 
         c = self.edge_encoding(query, edge_attr, edge_paths)
         a = query.mm(key.transpose(0, 1)) / query.size(-1) ** 0.5
-        a = (a + b + c) * batch_mask
-        softmax = torch.softmax(a, dim=-1)
+        a = (a + b + c) * batch_mask_neg_inf
+        softmax = torch.softmax(a, dim=-1) * batch_mask_zeros
         x = softmax.mm(value)
         return x
 
