@@ -4,6 +4,8 @@ import torch
 from torch import nn
 from torch_geometric.utils import degree
 
+from graphormer.utils import decrease_to_max_value
+
 
 class CentralityEncoding(nn.Module):
     def __init__(self, max_in_degree: int, max_out_degree: int, node_dim: int):
@@ -27,8 +29,10 @@ class CentralityEncoding(nn.Module):
         """
         num_nodes = x.shape[0]
 
-        x += self.z_in[degree(index=edge_index[1], num_nodes=num_nodes).long()] + \
-             self.z_out[degree(index=edge_index[0], num_nodes=num_nodes).long()]
+        in_degree = decrease_to_max_value(degree(index=edge_index[1], num_nodes=num_nodes).long(), self.max_in_degree)
+        out_degree = decrease_to_max_value(degree(index=edge_index[0], num_nodes=num_nodes).long(), self.max_out_degree)
+
+        x += self.z_in[in_degree] + self.z_out[out_degree]
 
         return x
 
