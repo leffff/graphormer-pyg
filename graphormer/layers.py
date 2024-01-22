@@ -29,8 +29,8 @@ class CentralityEncoding(nn.Module):
         """
         num_nodes = x.shape[0]
 
-        in_degree = decrease_to_max_value(degree(index=edge_index[1], num_nodes=num_nodes).long(), self.max_in_degree)
-        out_degree = decrease_to_max_value(degree(index=edge_index[0], num_nodes=num_nodes).long(), self.max_out_degree)
+        in_degree = decrease_to_max_value(degree(index=edge_index[1], num_nodes=num_nodes).long(), self.max_in_degree - 1)
+        out_degree = decrease_to_max_value(degree(index=edge_index[0], num_nodes=num_nodes).long(), self.max_out_degree - 1)
 
         x += self.z_in[in_degree] + self.z_out[out_degree]
 
@@ -151,7 +151,7 @@ class GraphormerAttentionHead(nn.Module):
         return x
 
 
-# FIX: sparse attention instead of regular attention, due to specificity of GNNs(all nodes in batch will exchange attention)
+# FIX: PyG attention instead of regular attention, due to specificity of GNNs
 class GraphormerMultiHeadAttention(nn.Module):
     def __init__(self, num_heads: int, dim_in: int, dim_q: int, dim_k: int, edge_dim: int, max_path_distance: int):
         """
