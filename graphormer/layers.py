@@ -29,8 +29,10 @@ class CentralityEncoding(nn.Module):
         """
         num_nodes = x.shape[0]
 
-        in_degree = decrease_to_max_value(degree(index=edge_index[1], num_nodes=num_nodes).long(), self.max_in_degree - 1)
-        out_degree = decrease_to_max_value(degree(index=edge_index[0], num_nodes=num_nodes).long(), self.max_out_degree - 1)
+        in_degree = decrease_to_max_value(degree(index=edge_index[1], num_nodes=num_nodes).long(),
+                                          self.max_in_degree - 1)
+        out_degree = decrease_to_max_value(degree(index=edge_index[0], num_nodes=num_nodes).long(),
+                                           self.max_out_degree - 1)
 
         x += self.z_in[in_degree] + self.z_out[out_degree]
 
@@ -110,13 +112,11 @@ class GraphormerAttentionHead(nn.Module):
         self.v = nn.Linear(dim_in, dim_k)
 
     def forward(self,
-                query: torch.Tensor,
-                key: torch.Tensor,
-                value: torch.Tensor,
+                x: torch.Tensor,
                 edge_attr: torch.Tensor,
                 b: torch.Tensor,
                 edge_paths,
-                ptr) -> torch.Tensor:
+                ptr=None) -> torch.Tensor:
         """
         :param query: node feature matrix
         :param key: node feature matrix
@@ -127,28 +127,40 @@ class GraphormerAttentionHead(nn.Module):
         :param ptr: batch pointer that shows graph indexes in batch of graphs
         :return: torch.Tensor, node embeddings after attention operation
         """
-        batch_mask_neg_inf = torch.full(size=(query.shape[0], query.shape[0]), fill_value=-1e6).to(next(self.parameters()).device)
-        batch_mask_zeros = torch.zeros(size=(query.shape[0], query.shape[0])).to(next(self.parameters()).device)
+        batch_mask_neg_inf = torch.full(size=(x.shape[0], x.shape[0]), fill_value=-1e6).to(
+            next(self.parameters()).device)
+        batch_mask_zeros = torch.zeros(size=(x.shape[0], x.shape[0])).to(next(self.parameters()).device)
 
         # OPTIMIZE: get rid of slices: rewrite to torch
         if type(ptr) == type(None):
-            batch_mask_neg_inf = torch.ones(size=(query.shape[0], query.shape[0])).to(next(self.parameters()).device)
+            batch_mask_neg_inf = torch.ones(size=(x.shape[0], x.shape[0])).to(next(self.parameters()).device)
             batch_mask_zeros += 1
         else:
             for i in range(len(ptr) - 1):
                 batch_mask_neg_inf[ptr[i]:ptr[i + 1], ptr[i]:ptr[i + 1]] = 1
                 batch_mask_zeros[ptr[i]:ptr[i + 1], ptr[i]:ptr[i + 1]] = 1
 
-        query = self.q(query)
-        key = self.k(key)
-        value = self.v(value)
+        query = self.q(x)
+        key = self.k(x)
+        value = self.v(x)
 
-        c = self.edge_encoding(query, edge_attr, edge_paths)
-        a = query.mm(key.transpose(0, 1)) / query.size(-1) ** 0.5
+        c = self.edge_encoding(x, edge_attr, edge_paths)
+        a = self.compute_a(key, query, ptr)
         a = (a + b + c) * batch_mask_neg_inf
         softmax = torch.softmax(a, dim=-1) * batch_mask_zeros
         x = softmax.mm(value)
         return x
+
+    def compute_a(self, key, query, ptr=None):
+        if type(ptr) == type(None):
+            a = query.mm(key.transpose(0, 1)) / query.size(-1) ** 0.5
+        else:
+            a = torch.zeros((query.shape[0], query.shape[0]), device=key.device)
+            for i in range(len(ptr) - 1):
+                a[ptr[i]:ptr[i + 1], ptr[i]:ptr[i + 1]] = query[ptr[i]:ptr[i + 1]].mm(
+                    key[ptr[i]:ptr[i + 1]].transpose(0, 1)) / query.size(-1) ** 0.5
+
+        return a
 
 
 # FIX: PyG attention instead of regular attention, due to specificity of GNNs
@@ -183,7 +195,7 @@ class GraphormerMultiHeadAttention(nn.Module):
         """
         return self.linear(
             torch.cat([
-                attention_head(x, x, x, edge_attr, b, edge_paths, ptr) for attention_head in self.heads
+                attention_head(x, edge_attr, b, edge_paths, ptr) for attention_head in self.heads
             ], dim=-1)
         )
 
