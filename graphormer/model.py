@@ -17,6 +17,7 @@ class Graphormer(nn.Module):
                  edge_dim: int,
                  output_dim: int,
                  n_heads: int,
+                 ff_dim: int,
                  max_in_degree: int,
                  max_out_degree: int,
                  max_path_distance: int):
@@ -41,6 +42,7 @@ class Graphormer(nn.Module):
         self.edge_dim = edge_dim
         self.output_dim = output_dim
         self.n_heads = n_heads
+        self.ff_dim = ff_dim
         self.max_in_degree = max_in_degree
         self.max_out_degree = max_out_degree
         self.max_path_distance = max_path_distance
@@ -63,6 +65,7 @@ class Graphormer(nn.Module):
                 node_dim=self.node_dim,
                 edge_dim=self.edge_dim,
                 n_heads=self.n_heads,
+                ff_dim=self.ff_dim,
                 max_path_distance=self.max_path_distance) for _ in range(self.num_layers)
         ])
 

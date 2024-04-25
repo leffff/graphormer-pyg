@@ -201,7 +201,7 @@ class GraphormerMultiHeadAttention(nn.Module):
 
 
 class GraphormerEncoderLayer(nn.Module):
-    def __init__(self, node_dim, edge_dim, n_heads, max_path_distance):
+    def __init__(self, node_dim, edge_dim, n_heads, ff_dim, max_path_distance):
         """
         :param node_dim: node feature matrix input number of dimension
         :param edge_dim: edge feature matrix input number of dimension
@@ -212,6 +212,7 @@ class GraphormerEncoderLayer(nn.Module):
         self.node_dim = node_dim
         self.edge_dim = edge_dim
         self.n_heads = n_heads
+        self.ff_dim = ff_dim
 
         self.attention = GraphormerMultiHeadAttention(
             dim_in=node_dim,
@@ -221,9 +222,14 @@ class GraphormerEncoderLayer(nn.Module):
             edge_dim=edge_dim,
             max_path_distance=max_path_distance,
         )
-        self.ln_1 = nn.LayerNorm(node_dim)
-        self.ln_2 = nn.LayerNorm(node_dim)
-        self.ff = nn.Linear(node_dim, node_dim)
+        self.ln_1 = nn.LayerNorm(self.node_dim)
+        self.ln_2 = nn.LayerNorm(self.node_dim)
+        self.ff = nn.Sequential(
+                    nn.Linear(self.node_dim, self.ff_dim),
+                    nn.GELU(),
+                    nn.Linear(self.ff_dim, self.node_dim)
+        )
+
 
     def forward(self,
                 x: torch.Tensor,
