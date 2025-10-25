@@ -4,8 +4,11 @@ from typing import Tuple, Dict, List
 from torch.multiprocessing import spawn
 
 import networkx as nx
-from torch_geometric.data import Data, Batch
+import torch
+from torch_geometric.data import Data
 from torch_geometric.utils.convert import to_networkx
+from torch_geometric.utils import degree
+from graphormer.utils import decrease_to_max_value
 
 
 def floyd_warshall_source_to_all(G, source, cutoff=None):
@@ -70,3 +73,68 @@ def batched_shortest_path_distance(data) -> Tuple[Dict[int, List[int]], Dict[int
             edge_paths[k] = v
 
     return node_paths, edge_paths
+
+def precalculate_custom_attributes(data, max_in_degree=None, max_out_degree=None):
+    """
+    Precalculate and store some graph attributes for faster access, including:
+    - in_degree of each node (tensor)
+    - out_degree of each node (tensor)
+
+    :param data: a PyG Data object
+    :param max_in_degree: max in degree of nodes
+    :param max_out_degree: max out degree of nodes
+    :return: a PyG Data object with in_degree and out_degree attributes
+    """
+
+    # Calculate in_degree and out_degree
+    num_nodes = data.num_nodes
+    edge_index = data.edge_index
+    data.in_degree = decrease_to_max_value(degree(index=edge_index[1], num_nodes=num_nodes).long(), max_in_degree - 1)
+    data.out_degree = decrease_to_max_value(degree(index=edge_index[0], num_nodes=num_nodes).long(), max_out_degree - 1)
+
+    return data
+
+def precalculate_paths(data, max_path_distance=None):
+    """
+    Precalculate node_paths and edge_paths for a data batch, along with path lengths as tensor
+    and a 3D tensor of edge paths.
+
+    :param data: a PyG Data object or Batch object
+    :param max_path_distance: maximum path distance to consider
+    :return: tuple of (node_paths_length, edge_paths_tensor, edge_paths_length)
+        where:
+        - node_paths_length: tensor of shape [num_nodes, num_nodes] containing path lengths
+        - edge_paths_tensor: 3D tensor of shape [num_nodes, num_nodes, max_path_distance] containing edge indices
+        - edge_paths_length: tensor of shape [num_nodes, num_nodes] containing path lengths
+    """
+
+    if type(data) == Data:
+        node_paths_dict, edge_paths_dict = shortest_path_distance(data)
+    else:
+        node_paths_dict, edge_paths_dict = batched_shortest_path_distance(data)
+    
+    # Create node path lengths tensor
+    num_nodes = data.num_nodes
+    node_paths_length = torch.zeros((num_nodes, num_nodes), dtype=torch.long)
+    
+    # Create 3D tensor for edge paths with shape [num_nodes, num_nodes, max_path_distance], and 
+    # a 2D tensor for edge path lengths [num_nodes, num_nodes]
+    # Initialize with -1 to indicate padding
+    edge_paths_tensor = torch.full((num_nodes, num_nodes, max_path_distance), -1, dtype=torch.long)
+    edge_paths_length = torch.zeros((num_nodes, num_nodes), dtype=torch.long)
+    
+    for src in node_paths_dict:
+        for dst in node_paths_dict[src]:
+            # Path length is len(path) - 1 (number of edges)
+            # But for SpatialEncoding, we need len(path) (number of nodes)
+            node_paths_length[src, dst] = min(len(node_paths_dict[src][dst]), max_path_distance)
+            
+            # Fill edge paths tensor if edge path exists
+            if dst in edge_paths_dict.get(src, {}):
+                path_edges = edge_paths_dict[src][dst][:max_path_distance]
+                current_path_length = len(path_edges)
+                edge_paths_length[src, dst] = current_path_length
+                edge_paths_tensor[src, dst, :current_path_length] = torch.tensor(path_edges, dtype=torch.long)
+
+    return node_paths_dict, edge_paths_dict, node_paths_length, edge_paths_tensor, edge_paths_length
+

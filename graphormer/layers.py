@@ -2,10 +2,7 @@ from typing import Tuple
 
 import torch
 from torch import nn
-from torch_geometric.utils import degree
-
-from graphormer.utils import decrease_to_max_value
-
+import torch.nn.functional as F
 
 class CentralityEncoding(nn.Module):
     def __init__(self, max_in_degree: int, max_out_degree: int, node_dim: int):
@@ -15,24 +12,17 @@ class CentralityEncoding(nn.Module):
         :param node_dim: hidden dimensions of node features
         """
         super().__init__()
-        self.max_in_degree = max_in_degree
-        self.max_out_degree = max_out_degree
         self.node_dim = node_dim
         self.z_in = nn.Parameter(torch.randn((max_in_degree, node_dim)))
         self.z_out = nn.Parameter(torch.randn((max_out_degree, node_dim)))
 
-    def forward(self, x: torch.Tensor, edge_index: torch.LongTensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, in_degree: torch.LongTensor, out_degree: torch.LongTensor) -> torch.Tensor:
         """
         :param x: node feature matrix
-        :param edge_index: edge_index of graph (adjacency list)
+        :param in_degree: in_degree of each node
+        :param out_degree: out_degree of each node
         :return: torch.Tensor, node embeddings after Centrality encoding
         """
-        num_nodes = x.shape[0]
-
-        in_degree = decrease_to_max_value(degree(index=edge_index[1], num_nodes=num_nodes).long(),
-                                          self.max_in_degree - 1)
-        out_degree = decrease_to_max_value(degree(index=edge_index[0], num_nodes=num_nodes).long(),
-                                           self.max_out_degree - 1)
 
         x += self.z_in[in_degree] + self.z_out[out_degree]
 
@@ -49,16 +39,19 @@ class SpatialEncoding(nn.Module):
 
         self.b = nn.Parameter(torch.randn(self.max_path_distance))
 
-    def forward(self, x: torch.Tensor, paths) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, node_paths_length: torch.Tensor) -> torch.Tensor:
         """
         :param x: node feature matrix
-        :param paths: pairwise node paths
+        :param node_paths_length: tensor of shape [num_nodes, num_nodes] containing path lengths
         :return: torch.Tensor, spatial Encoding matrix
         """
-        spatial_matrix = torch.zeros((x.shape[0], x.shape[0])).to(next(self.parameters()).device)
-        for src in paths:
-            for dst in paths[src]:
-                spatial_matrix[src][dst] = self.b[min(len(paths[src][dst]), self.max_path_distance) - 1]
+        device = next(self.parameters()).device
+        spatial_matrix = torch.zeros((x.shape[0], x.shape[0]), device=device)
+        
+        mask_of_nonexistent_paths = (node_paths_length == 0)
+        indices = torch.clamp(node_paths_length-1, 0, len(self.b) - 1)
+        spatial_matrix = F.embedding(indices, self.b.unsqueeze(1)).squeeze(-1)
+        spatial_matrix[mask_of_nonexistent_paths] = 0
 
         return spatial_matrix
 
@@ -77,22 +70,45 @@ class EdgeEncoding(nn.Module):
         self.max_path_distance = max_path_distance
         self.edge_vector = nn.Parameter(torch.randn(self.max_path_distance, self.edge_dim))
 
-    def forward(self, x: torch.Tensor, edge_attr: torch.Tensor, edge_paths) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, edge_attr: torch.Tensor, edge_paths_tensor, edge_paths_length) -> torch.Tensor:
         """
         :param x: node feature matrix
         :param edge_attr: edge feature matrix
-        :param edge_paths: pairwise node paths in edge indexes
+        :param edge_paths_tensor: 3D tensor of shape [num_nodes, num_nodes, max_path_distance] containing edge indices
+        :param edge_paths_length: 2D tensor of shape [num_nodes, num_nodes] containing path lengths
         :return: torch.Tensor, Edge Encoding matrix
         """
-        cij = torch.zeros((x.shape[0], x.shape[0])).to(next(self.parameters()).device)
-
-        for src in edge_paths:
-            for dst in edge_paths[src]:
-                path_ij = edge_paths[src][dst][:self.max_path_distance]
-                weight_inds = [i for i in range(len(path_ij))]
-                cij[src][dst] = dot_product(self.edge_vector[weight_inds], edge_attr[path_ij]).mean()
-
+        device = next(self.parameters()).device
+        cij = torch.zeros((x.shape[0], x.shape[0]), device=device)
+        
+        # Create mask to identify valid edges in the path tensor
+        mask = edge_paths_tensor != -1
+        # Use non-inplace operation, create a new tensor copy to avoid modifying the original tensor
+        safe_edge_paths_tensor = edge_paths_tensor.clone()
+        safe_edge_paths_tensor[~mask] = 0
+        
+        # Get edge attributes for all paths
+        # Shape: [num_nodes, num_nodes, max_path_distance, edge_dim]
+        edge_attrs = F.embedding(safe_edge_paths_tensor, edge_attr)
+        
+        # Expand edge_vector to match dimensions
+        # Shape: [1, 1, max_path_distance, edge_dim]
+        expanded_edge_vector = self.edge_vector.unsqueeze(0).unsqueeze(0)
+        
+        # Calculate dot product for each edge in each path
+        # Shape: [num_nodes, num_nodes, max_path_distance]
+        dot_products = (edge_attrs * expanded_edge_vector).sum(dim=-1)
+        
+        # Apply mask to ignore padding
+        dot_products = dot_products * mask
+        
+        # Calculate average for each node pair, considering only valid paths
+        # Sum over path length dimension, then divide by number of valid edges in each path
+        valid_pairs = edge_paths_length > 0
+        cij[valid_pairs] = dot_products.sum(dim=-1)[valid_pairs] / (edge_paths_length[valid_pairs] + 1e-10)
+        
         cij = torch.nan_to_num(cij)
+        
         return cij
 
 
@@ -115,15 +131,22 @@ class GraphormerAttentionHead(nn.Module):
                 x: torch.Tensor,
                 edge_attr: torch.Tensor,
                 b: torch.Tensor,
-                edge_paths,
+                edge_paths_tensor,
+                edge_paths_length,
                 ptr=None) -> torch.Tensor:
         """
-        :param query: node feature matrix
-        :param key: node feature matrix
-        :param value: node feature matrix
+        :param x: node feature matrix
+        :param edge_attr: edge feature matrix
+        :param b: spatial encoding
+        :param edge_paths: pairwise node paths in edge indexes (deprecated)
+        :param edge_paths_tensor: 3D tensor of shape [num_nodes, num_nodes, max_path_distance] containing edge indices
+        :param edge_paths_length: 2D tensor of shape [num_nodes, num_nodes] containing path lengths
+        :param ptr: pointer tensor for batching
         :param edge_attr: edge feature matrix
         :param b: spatial Encoding matrix
-        :param edge_paths: pairwise node paths in edge indexes
+        :param edge_paths: pairwise node paths in edge indexes (deprecated)
+        :param edge_paths_tensor: 3D tensor of shape [num_nodes, num_nodes, max_path_distance] containing edge indices
+        :param edge_paths_length: 2D tensor of shape [num_nodes, num_nodes] containing path lengths
         :param ptr: batch pointer that shows graph indexes in batch of graphs
         :return: torch.Tensor, node embeddings after attention operation
         """
@@ -144,7 +167,7 @@ class GraphormerAttentionHead(nn.Module):
         key = self.k(x)
         value = self.v(x)
 
-        c = self.edge_encoding(x, edge_attr, edge_paths)
+        c = self.edge_encoding(x, edge_attr, edge_paths_tensor, edge_paths_length)
         a = self.compute_a(key, query, ptr)
         a = (a + b + c) * batch_mask_neg_inf
         softmax = torch.softmax(a, dim=-1) * batch_mask_zeros
@@ -183,19 +206,21 @@ class GraphormerMultiHeadAttention(nn.Module):
                 x: torch.Tensor,
                 edge_attr: torch.Tensor,
                 b: torch.Tensor,
-                edge_paths,
-                ptr) -> torch.Tensor:
+                edge_paths_tensor=None,
+                edge_paths_length=None,
+                ptr=None) -> torch.Tensor:
         """
         :param x: node feature matrix
         :param edge_attr: edge feature matrix
         :param b: spatial Encoding matrix
-        :param edge_paths: pairwise node paths in edge indexes
+        :param edge_paths_tensor: 3D tensor of shape [num_nodes, num_nodes, max_path_distance] containing edge indices
+        :param edge_paths_length: 2D tensor of shape [num_nodes, num_nodes] containing path lengths
         :param ptr: batch pointer that shows graph indexes in batch of graphs
         :return: torch.Tensor, node embeddings after all attention heads
         """
         return self.linear(
             torch.cat([
-                attention_head(x, edge_attr, b, edge_paths, ptr) for attention_head in self.heads
+                attention_head(x, edge_attr, b, edge_paths_tensor, edge_paths_length, ptr) for attention_head in self.heads
             ], dim=-1)
         )
 
@@ -235,8 +260,9 @@ class GraphormerEncoderLayer(nn.Module):
                 x: torch.Tensor,
                 edge_attr: torch.Tensor,
                 b: torch,
-                edge_paths,
-                ptr) -> Tuple[torch.Tensor, torch.Tensor]:
+                edge_paths_tensor=None,
+                edge_paths_length=None,
+                ptr=None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         h′(l) = MHA(LN(h(l−1))) + h(l−1)
         h(l) = FFN(LN(h′(l))) + h′(l)
@@ -244,11 +270,12 @@ class GraphormerEncoderLayer(nn.Module):
         :param x: node feature matrix
         :param edge_attr: edge feature matrix
         :param b: spatial Encoding matrix
-        :param edge_paths: pairwise node paths in edge indexes
+        :param edge_paths_tensor: 3D tensor of shape [num_nodes, num_nodes, max_path_distance] containing edge indices
+        :param edge_paths_length: 2D tensor of shape [num_nodes, num_nodes] containing path lengths
         :param ptr: batch pointer that shows graph indexes in batch of graphs
         :return: torch.Tensor, node embeddings after Graphormer layer operations
         """
-        x_prime = self.attention(self.ln_1(x), edge_attr, b, edge_paths, ptr) + x
+        x_prime = self.attention(self.ln_1(x), edge_attr, b, edge_paths_tensor, edge_paths_length, ptr) + x
         x_new = self.ff(self.ln_2(x_prime)) + x_prime
 
         return x_new

@@ -1,27 +1,16 @@
 # graphormer-pyg
 [Microsoft Graphormer](https://github.com/microsoft/Graphormer) rewritten in PyTorch-Geometric
 
-# !!! Dear Developers !!!
-I currently do not have time to modify or work on this repository.</br>
-This implementation has one main disadvantage: IT's SLOW!</br>
-During the past few months I have recieved numerous issues concerning the execution speed.</br>
-If anyone wants to speedup my code or work on further development of this repository, you are MORE THAN WELCOME!</br>
-I will review all of your PRs and we can discuss any issues you are willing to discuss!</br>
+# Modifications made
+Compared to the original implementation of [graphormer-pyg](https://github.com/leffff/graphormer-pyg) (commit 231fcf0), this implementation has the following modifications to improve execution speed:
+1. The in_degree and out_degree, as used in the centrality encoding layer, are pre-computed and stored in the graph data structure. 
+2. The length of the shortest path between each pair of nodes is pre-computed as a tensor and passed to the spatial encoding module, in which the original for loops are replaced by tensor operations.
+3. The path between each pair of edges and the length of the path are pre-computed as tensors and passed to the edge encoding module, in which the original for loops are replaced by tensor operations.
 </br>
-</br>
-</br>
-</br>
+
+In my tests on MoleculeNet dataset with GPU, the training speed was improved by about 50 fold.  
 
 
 ![image](https://github.com/leffff/graphormer-pyg/assets/57654885/34c1626e-aa71-4f2a-a12c-0d5900d32cbf)
 
-# Implemented Layers
-1. Centrality Encoding
-2. Spatial Encoding
-3. Edge Encoding
-4. Multi-Head Self-Attention
 
-# Warning
-This implementation differs from the original implementation in the paper in following ways:
-1. No [VNode] ([CLS] token analogue in BERT)
-2. The shortest path algorithm is not mentioned in the paper. This repository uses Floyd-Warshall

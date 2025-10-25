@@ -4,7 +4,6 @@ import torch
 from torch import nn
 from torch_geometric.data import Data
 
-from graphormer.functional import shortest_path_distance, batched_shortest_path_distance
 from graphormer.layers import GraphormerEncoderLayer, CentralityEncoding, SpatialEncoding
 
 
@@ -82,19 +81,26 @@ class Graphormer(nn.Module):
 
         if type(data) == Data:
             ptr = None
-            node_paths, edge_paths = shortest_path_distance(data)
         else:
             ptr = data.ptr
-            node_paths, edge_paths = batched_shortest_path_distance(data)
+        
+        # Get node_paths_length from data (must be provided during preprocessing)
+        node_paths_length = data.node_paths_length
 
         x = self.node_in_lin(x)
         edge_attr = self.edge_in_lin(edge_attr)
 
-        x = self.centrality_encoding(x, edge_index)
-        b = self.spatial_encoding(x, node_paths)
+        x = self.centrality_encoding(x, data.in_degree, data.out_degree)
+        # Get spatial encoding
+        b = self.spatial_encoding(x, node_paths_length)
 
+        # Get edge paths information if available
+        edge_paths_tensor = getattr(data, 'edge_paths_tensor', None)
+        edge_paths_length = getattr(data, 'edge_paths_length', None)
+
+        # Apply encoder layers
         for layer in self.layers:
-            x = layer(x, edge_attr, b, edge_paths, ptr)
+            x = layer(x, edge_attr, b, edge_paths_tensor, edge_paths_length, ptr)
 
         x = self.node_out_lin(x)
 
