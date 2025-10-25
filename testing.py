@@ -119,12 +119,11 @@ for epoch in range(10):
     model.eval()
     batch_loss = 0.0
     for i, batch in enumerate(tqdm(test_loader)):
-        node_paths, edge_paths, node_paths_length, edge_paths_tensor, edge_paths_length = test_node_edge_paths[i]
-        batch.node_paths = node_paths
-        batch.edge_paths = edge_paths
+        node_paths_length, edge_paths_tensor, edge_paths_length = test_node_edge_paths[i]
         batch.node_paths_length = node_paths_length
         batch.edge_paths_tensor = edge_paths_tensor
         batch.edge_paths_length = edge_paths_length
+        
         batch = batch.to(DEVICE) 
         y = batch.y
         with torch.no_grad():
